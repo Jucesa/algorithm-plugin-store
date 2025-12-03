@@ -105,8 +105,22 @@ jobs:
     - name: Commit & Push Store Update
       if: startsWith(github.ref, 'refs/tags/')
       run: |
+        # Configura usuário do Git
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
+        
+        # 1. Busca informações da branch main remota
+        git fetch origin main
+        
+        # 2. Muda para a branch main (trazendo o store.json modificado junto)
+        git checkout main
+        
+        # 3. Garante sincronia (Pull) para evitar conflitos se alguém tiver mexido
+        git pull origin main
+        
+        # 4. Adiciona e Commita
         git add store.json
-        git commit -m "chore(store): update $PLUGIN_DIR to version ${{ env.VERSION }}"
-        git push origin HEAD:main
+        git commit -m "chore(store): update ${{ env.PLUGIN_DIR }} to version ${{ env.VERSION }}"
+        
+        # 5. Envia para a main (agora funciona porque estamos na branch correta)
+        git push origin main
