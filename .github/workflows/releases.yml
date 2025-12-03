@@ -1,0 +1,112 @@
+name: Release Plugin
+
+# Gatilho: Roda quando você cria uma tag no formato "pasta/v..."
+# Exemplo: "sd-plugin/v1.0.0" (Se sua pasta chamar sd-plugin)
+# Exemplo: "plugins/v1.0.0" (Se sua pasta chamar plugins)
+on:
+  push:
+    tags:
+      - '*/*' 
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Baixa o código do repositório
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 2. Identifica qual Plugin estamos lançando
+    - name: Parse Tag Information
+      id: info
+      run: |
+        # A tag vem no formato "refs/tags/nome-da-pasta/v1.0.0"
+        FULL_TAG=${{ github.ref_name }}
+        
+        # Extrai o nome da pasta (o que vem antes da barra)
+        PLUGIN_DIR=$(echo $FULL_TAG | cut -d'/' -f1)
+        
+        # Extrai a versão (o que vem depois da barra, removendo o 'v')
+        VERSION_TAG=$(echo $FULL_TAG | cut -d'/' -f2)
+        VERSION=${VERSION_TAG#v}
+        
+        echo "Plugin detectado (Pasta): $PLUGIN_DIR"
+        echo "Versão detectada: $VERSION"
+        
+        # Salva nas variáveis de ambiente
+        echo "PLUGIN_DIR=$PLUGIN_DIR" >> $GITHUB_ENV
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+    # 3. Configura o Java 21
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    # 4. Instala o Contrato (Base)
+    - name: Install Contract
+      working-directory: ./contract
+      run: mvn clean install
+
+    # 5. Instala o Código Legado (Base)
+    # ATUALIZADO: Aponta para a pasta 'legado' conforme sua estrutura
+    - name: Install Legacy Algorithms
+      working-directory: ./legado
+      run: mvn clean install
+
+    # 6. Empacota o Plugin Dinâmico
+    # Entra na pasta que veio da TAG (ex: ./plugins ou ./sd-plugin)
+    - name: Package Plugin (Fat Jar)
+      working-directory: ./${{ env.PLUGIN_DIR }}
+      run: mvn clean package
+
+    # 7. Cria a Release no GitHub e sobe o JAR
+    - name: Create Release & Upload JAR
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        # Pega qualquer JAR gerado na pasta do plugin
+        # Exclui o arquivo original-... (que não é o Fat Jar)
+        files: |
+          ${{ env.PLUGIN_DIR }}/target/*.jar
+          !${{ env.PLUGIN_DIR }}/target/original-*.jar
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # 8. Atualiza o arquivo store.json na raiz do projeto
+    - name: Update Store Manifest
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        # Localiza o JAR
+        JAR_PATH=$(ls ${{ env.PLUGIN_DIR }}/target/*.jar | grep -v original)
+        JAR_NAME=$(basename $JAR_PATH)
+        
+        # Monta a URL de download
+        DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$JAR_NAME"
+        
+        # O ID no JSON deve ser igual ao nome da pasta (ex: "plugins" ou "sd-plugin")
+        PLUGIN_ID="${{ env.PLUGIN_DIR }}"
+        
+        echo "Atualizando store.json -> ID: $PLUGIN_ID | Versão: ${{ env.VERSION }}"
+        
+        # Atualiza o JSON usando jq
+        jq --arg id "$PLUGIN_ID" --arg ver "${{ env.VERSION }}" --arg url "$DOWNLOAD_URL" \
+           'map(if .id == $id then . + {"version": $ver, "downloadUrl": $url} else . end)' \
+           store.json > store.tmp.json && mv store.tmp.json store.json
+
+    # 9. Commita e envia a atualização
+    - name: Commit & Push Store Update
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git add store.json
+        git commit -m "chore(store): update $PLUGIN_DIR to version ${{ env.VERSION }}"
+        git push
