@@ -1,0 +1,12 @@
+[
+  {
+    "id": "sd-evolutionary",
+    "name": "Subgroup Discovery (SD)",
+    "description": "Algoritmo evolutivo clássico adaptado para Java puro.",
+    "version": "1.0.0",
+    "type": "plugin",
+    "size": "150 KB",
+    "downloadUrl": "https://github.com/jucesa/mynedata-plugins/releases/download/v1.0.0/sd-plugin-1.0.0.jar",
+    "mainClass": "com.mynedata.plugins.SdPlugin"
+  }
+]
